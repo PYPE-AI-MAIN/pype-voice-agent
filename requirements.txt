@@ -1,0 +1,14 @@
+livekit>=1.0
+livekit-agents[google]~=1.0
+livekit-agents[openai]~=1.0
+livekit-agents[groq]~=1.0
+livekit-agents[deepgram]~=1.0
+livekit-agents[elevenlabs]~=1.0
+livekit-agents[silero]~=1.0
+livekit-agents[sarvam]~=1.0
+livekit-plugins-turn-detector
+livekit-plugins-noise-cancellation
+python-dotenv
+tavily-python
+twilio
+pyyaml

@@ -1,0 +1,8 @@
+__pycache__
+.env
+KMS
+agent-config.yaml
+agent/*
+!agent/.gitkeep
+venv
+outbound-trunk.json
