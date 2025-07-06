@@ -1,9 +1,9 @@
 import logging
 from livekit.agents import Agent
 from typing import Optional
-from user_data import UserData, RunContext_T
+from agent.agent_outbound_v1.user.user_data import UserData, RunContext_T
 
-logger = logging.getLogger("kannada-tutor")
+logger = logging.getLogger("agent")
 
 class BaseAgent(Agent):
     async def on_enter(self) -> None:

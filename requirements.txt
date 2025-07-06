@@ -12,3 +12,6 @@ python-dotenv
 tavily-python
 twilio
 pyyaml
+fastapi
+pydantic
+uvicorn

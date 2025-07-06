@@ -9,6 +9,6 @@ class UserData:
     ctx: Optional[JobContext] = None
 
     def summarize(self) -> str:
-        return "User data: Kannada learning voice agent"
+        return "User data: user voice agent"
 
 RunContext_T = RunContext[UserData]
