@@ -22,10 +22,11 @@ load_dotenv()
 app = FastAPI()
 
 # Enable CORS
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Update to restrict specific origins
-    allow_credentials=True,
+    allow_origins=["*"],  # ✅ OK only when credentials=False
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
