@@ -14,6 +14,8 @@ import json
 from utils.create_outbound_agent import create_outbound_agent, AgentRequest
 from utils.create_inbound_agent import create_inbound_agent, AgentRequest
 from fastapi.middleware.cors import CORSMiddleware
+import sys
+python_executable = sys.executable
 
 
 # Load environment variables from .env at startup
@@ -25,11 +27,15 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # ✅ OK only when credentials=False
-    allow_credentials=False,
+    allow_origins=[
+        "https://vc-agent-dashboard-j119.vercel.app",
+        "http://localhost:3000"
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 PID_DIR = "pids"
 os.makedirs(PID_DIR, exist_ok=True)
@@ -129,7 +135,7 @@ def run_agent(req: RunAgentRequest):
     env = os.environ.copy()
     env["AGENT_CONFIG_PATH"] = config_path
     proc = subprocess.Popen(
-        ["python", "main.py", "dev"],
+        [python_executable, "main.py", "dev"], #this would run subprocess in virtual mode too
         cwd=os.path.dirname(os.path.abspath(__file__)),
         env=env,
     )
