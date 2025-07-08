@@ -64,7 +64,14 @@ def create_config(config: RootConfig):
     yaml_path = os.path.join(os.path.dirname(__file__), "agent-config.yaml")
     with open(yaml_path, "w", encoding="utf-8") as f:
         yaml.dump(config.dict(), f, allow_unicode=True, sort_keys=False)
-    return {"status": "success", "path": yaml_path}
+    # Write agent_config.json inside the agent's folder
+    agent_name = config.agent.name
+    agent_dir = os.path.join(os.path.dirname(__file__), "agent", agent_name)
+    os.makedirs(agent_dir, exist_ok=True)
+    json_path = os.path.join(agent_dir, "agent_config.json")
+    with open(json_path, "w", encoding="utf-8") as jf:
+        json.dump(config.dict(), jf, indent=2, ensure_ascii=False)
+    return {"status": "success", "yaml_path": yaml_path, "json_path": json_path}
 
 class RunAgentRequest(BaseModel):
     agent_name: str
