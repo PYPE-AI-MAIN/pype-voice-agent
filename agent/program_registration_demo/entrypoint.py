@@ -5,8 +5,8 @@ from livekit import api
 from livekit.agents import AgentSession, JobContext, RoomInputOptions
 from livekit.plugins.turn_detector.english import EnglishModel
 from livekit.plugins import noise_cancellation
-from agent.customer_support_specialist.user.user_data import UserData
-from agent.customer_support_specialist.agent_runtime_config import ASSISTANT_CLASSES as ASSISTANT_CLASSES_KT1
+from agent.program_registration_demo.user.user_data import UserData
+from agent.program_registration_demo.agent_runtime_config import ASSISTANT_CLASSES as ASSISTANT_CLASSES_KT1
 
 load_dotenv()
 

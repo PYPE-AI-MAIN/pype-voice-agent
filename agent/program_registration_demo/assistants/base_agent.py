@@ -1,7 +1,7 @@
 import logging
 from livekit.agents import Agent
 from typing import Optional
-from agent.customer_support_specialist.user.user_data import UserData, RunContext_T
+from agent.program_registration_demo.user.user_data import UserData, RunContext_T
 
 logger = logging.getLogger("agent")
 
