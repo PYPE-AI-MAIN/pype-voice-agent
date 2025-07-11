@@ -1,6 +1,6 @@
 from livekit.plugins import elevenlabs, openai, sarvam, silero, deepgram
-from agent.customer_support_specialist_v3.assistants.base_agent import BaseAgent
-from agent.customer_support_specialist_v3.user.user_data import RunContext_T
+from base_agent import BaseAgent
+from user_data import RunContext_T
 from livekit.agents import (function_tool)
 from livekit import api
 from livekit.agents.job import get_job_context

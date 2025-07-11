@@ -1,6 +1,6 @@
 from livekit.plugins import elevenlabs, openai, sarvam, silero
-from agent.customer_support_specialist_v3.assistants.base_agent import BaseAgent
-from agent.customer_support_specialist_v3.user.user_data import RunContext_T
+from base_agent import BaseAgent
+from user_data import RunContext_T
 
 class Anushka(BaseAgent):
     def __init__(self):
