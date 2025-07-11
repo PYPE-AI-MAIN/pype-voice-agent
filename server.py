@@ -1,10 +1,10 @@
 import logging
 from dotenv import load_dotenv
-from fastapi import FastAPI, BackgroundTasks, HTTPException, Body
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Body, Request
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import yaml
-import os
+import os, random, datetime
 import subprocess
 import glob
 import importlib.util
@@ -12,10 +12,16 @@ import re
 import signal
 import json
 from utils.create_outbound_agent import create_outbound_agent, AgentRequest
-from utils.create_inbound_agent import create_inbound_agent, AgentRequest
+from utils.create_agent import create_agent, AgentRequest
 from fastapi.middleware.cors import CORSMiddleware
 import sys
 python_executable = sys.executable
+from fastapi.responses import JSONResponse
+from livekit import api
+from livekit.api.access_token import VideoGrants
+from fastapi import APIRouter
+from pydantic import BaseModel
+from typing import Optional
 
 
 # Load environment variables from .env at startup
@@ -75,6 +81,9 @@ def create_config(config: RootConfig):
 
 class RunAgentRequest(BaseModel):
     agent_name: str
+    room_name: Optional[str] = None
+    agent_token: Optional[str] = None
+    agent_identity: Optional[str] = None
 
 # Find all agent config files
 AGENT_CONFIGS = glob.glob("agent/*/agent_runtime_config.py")
@@ -141,8 +150,15 @@ def run_agent(req: RunAgentRequest):
             os.remove(pid_file)  # Stale PID file
     env = os.environ.copy()
     env["AGENT_CONFIG_PATH"] = config_path
+    # Set web session variables if provided
+    if req.room_name:
+        env["ROOM_NAME"] = req.room_name
+    if req.agent_token:
+        env["AGENT_TOKEN"] = req.agent_token
+    if req.agent_identity:
+        env["AGENT_IDENTITY"] = req.agent_identity
     proc = subprocess.Popen(
-        [python_executable, "main.py", "dev"], #this would run subprocess in virtual mode too
+        [python_executable, "main.py", "dev"],
         cwd=os.path.dirname(os.path.abspath(__file__)),
         env=env,
     )
@@ -213,7 +229,7 @@ class DispatchRequest(BaseModel):
 @app.post("/dispatch_call")
 def dispatch_call(req: DispatchRequest):
     logger.info(f"Starting dispatch for agent: {req.agent_name}, phone_number: {req.phone_number}")
-    metadata = json.dumps({"phone_number": req.phone_number})
+    metadata = json.dumps({"phone_number": req.phone_number, "source": "outbound", "agent_name": req.agent_name})
     env = os.environ.copy()  # Ensure all current env vars (including API keys) are passed
     # Log relevant env vars for debugging
     logger.info(f"LIVEKIT_API_KEY: {env.get('LIVEKIT_API_KEY')}")
@@ -235,65 +251,23 @@ def dispatch_call(req: DispatchRequest):
         raise HTTPException(status_code=500, detail=result.stderr)
     logger.info(f"Dispatch for agent {req.agent_name} completed successfully.")
     return {"status": "dispatched", "output": result.stdout}
-
-@app.post("/create-outbound-agent")
-def create_agent_endpoint(request: AgentRequest):
-    try:
-        create_outbound_agent(request.dict())
-        return {"status": "success"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
     
-@app.post("/create-inbound-agent/")
-def create_inbound_agent_endpoint(request: AgentRequest):
+@app.post("/create-agent")
+def create_agent_endpoint(request: AgentRequest):
     logger.info("Received request to create inbound agent.")
     try:
-        create_inbound_agent(request.dict())
+        create_agent(request.dict())
         logger.info("Inbound agent creation successful.")
         return {"status": "success"}
     except Exception as e:
-        logger.error(f"Inbound agent creation failed: {e}")
+        logger.error(f"Agent creation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-class CreateInboundTrunkRequest(BaseModel):
-    trunk_name: str
-    numbers: list[str]
 
 class CreateDispatchRuleRequest(BaseModel):
     trunk_id: str
     room_prefix: str = "call-"
 
-@app.post("/create_inbound_trunk")
-def create_inbound_trunk(req: CreateInboundTrunkRequest):
-    import subprocess, json
-    trunk_json = {
-        "trunk": {
-            "name": req.trunk_name,
-            "numbers": req.numbers
-        }
-    }
-    trunk_json_path = os.path.join(os.path.dirname(__file__), "inbound-trunk.json")
-    with open(trunk_json_path, "w") as f:
-        json.dump(trunk_json, f, indent=2)
-    # Run lk sip inbound create
-    result = subprocess.run(["lk", "sip", "inbound", "create", trunk_json_path], capture_output=True, text=True)
-    if result.returncode != 0:
-        raise HTTPException(status_code=500, detail=f"Failed to create inbound trunk: {result.stderr}")
-    # Parse trunk ID from output (assume JSON output)
-    try:
-        trunk_result = json.loads(result.stdout)
-        trunk_id = trunk_result.get("id") or trunk_result.get("trunkId")
-    except Exception:
-        # Fallback: try to extract trunk id from text
-        import re
-        match = re.search(r'([A-Z0-9_\-]{10,})', result.stdout)
-        trunk_id = match.group(1) if match else None
-    if not trunk_id:
-        raise HTTPException(status_code=500, detail="Could not parse trunk ID from CLI output")
-    return {
-        "trunk_id": trunk_id,
-        "trunk_cli_output": result.stdout
-    }
+
 
 @app.post("/create_dispatch_rule")
 def create_dispatch_rule(req: CreateDispatchRuleRequest):
@@ -317,3 +291,300 @@ def create_dispatch_rule(req: CreateDispatchRuleRequest):
         "dispatch_rule_id": dispatch_rule_id,
         "dispatch_cli_output": result.stdout
     }
+
+import uuid
+
+@app.post("/start_web_session")
+async def dispatch_web_session(request: Request):
+    data = await request.json()
+    agent_name = data["agent_name"]
+    user_identity = f"user_identity-{uuid.uuid4()}"
+    user_name = f"user_name-{uuid.uuid4()}"
+
+    # 1. Generate unique room name
+    room_name = f"web-{uuid.uuid4()}"
+
+    # 2. Generate user token for the frontend
+    user_token = api.AccessToken(
+        os.getenv('LIVEKIT_API_KEY'), os.getenv('LIVEKIT_API_SECRET')
+    ).with_identity(user_identity).with_name(user_name).with_grants(
+        api.VideoGrants(room_join=True, room=room_name)
+    ).to_jwt()
+
+    # 3. Create a dispatch job for the agent using the LiveKit CLI
+    metadata = json.dumps({
+        "source": "web",
+        "user_identity": user_identity,
+        "user_name": user_name,
+        "agent_name": agent_name
+    })
+    env = os.environ.copy()
+    command = [
+        "lk", "dispatch", "create",
+        "--agent-name", agent_name,
+        "--room", room_name,
+        "--metadata", metadata
+    ]
+    result = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+    for line in result.stdout:
+        print("DISPATCH STDOUT:", line, end="")
+    for line in result.stderr:
+            print("DISPATCH STDERR:", line, end="")
+    result.wait()
+    if result.returncode != 0:
+        raise HTTPException(status_code=500, detail=f"Failed to dispatch web session: {result.stderr}")
+
+    return {
+        "room": room_name,
+        "user_token": user_token,
+        "agent_name": agent_name,
+        "dispatch_cli_output": result.stdout
+    }
+
+class CreateSIPDispatchRuleRequestModel(BaseModel):
+    room_prefix: str = "call-"
+    agent_name: str
+    metadata: Optional[str] = None
+
+class CreateSIPDispatchRuleRequestModel(BaseModel):
+    room_prefix: str = "call-"
+    agent_name: str
+    metadata: Optional[str] = None
+    trunkIds: Optional[List[str]] = None
+    name: Optional[str] = None
+
+@app.post("/create_sip_dispatch_rule")
+async def create_sip_dispatch_rule(request: CreateSIPDispatchRuleRequestModel):
+    from livekit import api
+    lkapi = api.LiveKitAPI()
+    req = api.CreateSIPDispatchRuleRequest(
+        rule=api.SIPDispatchRule(
+            dispatch_rule_individual=api.SIPDispatchRuleIndividual(
+                room_prefix=request.room_prefix,
+            )
+        ),
+        room_config=api.RoomConfiguration(
+            agents=[api.RoomAgentDispatch(
+                agent_name=request.agent_name,
+                metadata=request.metadata or ""
+            )]
+        ),
+        trunk_ids=request.trunkIds or [],
+        name=request.name or ""
+    )
+    dispatch = await lkapi.sip.create_sip_dispatch_rule(req)
+    await lkapi.aclose()
+    return {"dispatch": dispatch.to_dict() if hasattr(dispatch, 'to_dict') else str(dispatch)}
+
+
+@app.delete("/delete_sip_trunk/{trunk_id}")
+async def delete_sip_trunk(trunk_id: str):
+    from livekit import api
+    lkapi = api.LiveKitAPI()
+    try:
+        result = await lkapi.sip.delete_sip_trunk(trunk_id)
+        await lkapi.aclose()
+        return {"status": "deleted", "trunk_id": trunk_id, "result": str(result)}
+    except Exception as e:
+        await lkapi.aclose()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/delete_sip_dispatch_rule/{dispatch_rule_id}")
+async def delete_sip_dispatch_rule(dispatch_rule_id: str):
+    from livekit import api
+    lkapi = api.LiveKitAPI()
+    try:
+        result = await lkapi.sip.delete_sip_dispatch_rule(dispatch_rule_id)
+        await lkapi.aclose()
+        return {"status": "deleted", "dispatch_rule_id": dispatch_rule_id, "result": str(result)}
+    except Exception as e:
+        await lkapi.aclose()
+        raise HTTPException(status_code=500, detail=str(e))
+
+class CreateSIPInboundTrunkRequest(BaseModel):
+    name: str
+    numbers: List[str]
+    allowed_numbers: List[str] = []
+
+@app.post("/create_sip_inbound_trunk")
+async def create_sip_inbound_trunk(request: CreateSIPInboundTrunkRequest):
+    from livekit import api
+    from livekit.protocol.sip import SIPInboundTrunkInfo
+    lkapi = api.LiveKitAPI()
+    trunk_info = SIPInboundTrunkInfo(
+        numbers=request.numbers,
+        allowed_numbers=request.allowed_numbers,
+        name=request.name
+    )
+    trunk_request = api.CreateSIPInboundTrunkRequest(trunk=trunk_info)
+    trunk = await lkapi.sip.create_sip_inbound_trunk(trunk_request)
+    await lkapi.aclose()
+    return {"trunk": trunk.to_dict() if hasattr(trunk, 'to_dict') else str(trunk)}
+
+@app.get("/list_sip_inbound_trunks")
+async def list_sip_inbound_trunks():
+    from livekit import api
+    from livekit.protocol.sip import ListSIPInboundTrunkRequest
+    import re
+    lkapi = api.LiveKitAPI()
+    trunks = await lkapi.sip.list_sip_inbound_trunk(ListSIPInboundTrunkRequest())
+    await lkapi.aclose()
+    # Convert to dict if possible
+    if hasattr(trunks, 'to_dict'):
+        return {"trunks": trunks.to_dict()}
+    # If trunks is a string, parse it into a list of dicts
+    trunks_str = str(trunks)
+    items = []
+    for item_str in re.split(r'items \{', trunks_str):
+        item_str = item_str.strip().strip('}').strip()
+        if not item_str:
+            continue
+        trunk = {}
+        for line in item_str.split('\n'):
+            if ':' in line:
+                key, value = line.split(':', 1)
+                trunk[key.strip()] = value.strip().strip('"')
+        if trunk:
+            items.append(trunk)
+    return {"trunks": items}
+
+@app.get("/list_sip_dispatch_rules")
+async def list_sip_dispatch_rules():
+    from livekit import api
+    import re
+    lkapi = api.LiveKitAPI()
+    rules = await lkapi.sip.list_sip_dispatch_rule(api.ListSIPDispatchRuleRequest())
+    await lkapi.aclose()
+    # Convert to dict if possible
+    if hasattr(rules, 'to_dict'):
+        return {"dispatch_rules": rules.to_dict()}
+    # If rules is a string, parse it into a list of dicts
+    rules_str = str(rules)
+    items = []
+    for item_str in re.split(r'items \{', rules_str):
+        item_str = item_str.strip().strip('}').strip()
+        if not item_str:
+            continue
+        rule = {}
+        for line in item_str.split('\n'):
+            if ':' in line:
+                key, value = line.split(':', 1)
+                rule[key.strip()] = value.strip().strip('"')
+        if rule:
+            items.append(rule)
+    return {"dispatch_rules": items}
+
+@app.get("/dispatch_rule_numbers")
+async def dispatch_rule_numbers():
+    from fastapi import Request
+    from livekit import api
+    import re
+    lkapi = api.LiveKitAPI()
+    # Get trunks
+    trunks_resp = await lkapi.sip.list_sip_inbound_trunk(api.ListSIPInboundTrunkRequest())
+    # Get dispatch rules
+    rules_resp = await lkapi.sip.list_sip_dispatch_rule(api.ListSIPDispatchRuleRequest())
+    await lkapi.aclose()
+    # Parse trunks
+    if hasattr(trunks_resp, 'to_dict'):
+        trunks = trunks_resp.to_dict().get('items', [])
+    else:
+        trunks = []
+        trunks_str = str(trunks_resp)
+        for item_str in re.split(r'items \{', trunks_str):
+            item_str = item_str.strip().strip('}').strip()
+            if not item_str:
+                continue
+            trunk = {}
+            for line in item_str.split('\n'):
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    trunk[key.strip()] = value.strip().strip('"')
+            if trunk:
+                trunks.append(trunk)
+    # Parse dispatch rules
+    if hasattr(rules_resp, 'to_dict'):
+        rules = rules_resp.to_dict().get('items', [])
+    else:
+        rules = []
+        rules_str = str(rules_resp)
+        for item_str in re.split(r'items \{', rules_str):
+            item_str = item_str.strip().strip('}').strip()
+            if not item_str:
+                continue
+            rule = {}
+            for line in item_str.split('\n'):
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    rule[key.strip()] = value.strip().strip('"')
+            if rule:
+                rules.append(rule)
+    # Build mapping trunk_id -> numbers
+    trunk_id_to_numbers = {}
+    for trunk in trunks:
+        trunk_id = trunk.get('sip_trunk_id')
+        numbers = trunk.get('numbers')
+        if trunk_id and numbers:
+            trunk_id_to_numbers[trunk_id] = numbers
+    # Build result: for each dispatch rule, get its trunk_ids and map to numbers
+    result = []
+    for rule in rules:
+        rule_id = rule.get('sip_dispatch_rule_id')
+        trunk_ids = rule.get('trunk_ids')
+        agent_name = rule.get('agent_name')
+        # trunk_ids may be a comma-separated string
+        if trunk_ids:
+            trunk_id_list = [tid.strip() for tid in trunk_ids.split(',')]
+            numbers = [trunk_id_to_numbers.get(tid) for tid in trunk_id_list if tid in trunk_id_to_numbers]
+        else:
+            trunk_id_list = []
+            numbers = []
+        result.append({
+            'dispatch_rule_id': rule_id,
+            'numbers': numbers,
+            'agent_name': agent_name,
+            'sip_trunk_id': trunk_id_list
+        })
+    return {'dispatch_rule_numbers': result}
+
+class ReplaceDispatchRuleRequest(BaseModel):
+    dispatch_rule_id: str
+    room_prefix: str = "call-"
+    agent_name: str
+    metadata: str
+    trunkIds: list
+    name: str
+
+@app.post("/replace_dispatch_rule")
+async def replace_dispatch_rule(request: ReplaceDispatchRuleRequest):
+    from livekit import api
+    from livekit.protocol.sip import DeleteSIPDispatchRuleRequest
+    lkapi = api.LiveKitAPI()
+    try:
+        delete_request = DeleteSIPDispatchRuleRequest(sip_dispatch_rule_id=request.dispatch_rule_id)
+        await lkapi.sip.delete_sip_dispatch_rule(delete_request)
+       
+        # 2. Create the new dispatch rule
+        agent_obj = api.RoomAgentDispatch(
+            agent_name=request.agent_name,
+            metadata=str(request.metadata)  # ensure this is a string
+        )
+        room_config_obj = api.RoomConfiguration(
+            agents=[agent_obj]
+        )
+        req = api.CreateSIPDispatchRuleRequest(
+            rule=api.SIPDispatchRule(
+                dispatch_rule_individual=api.SIPDispatchRuleIndividual(
+                    room_prefix=request.room_prefix,
+                )
+            ),
+            room_config=room_config_obj,
+            trunk_ids=request.trunkIds,
+            name=request.name
+        )
+        dispatch = await lkapi.sip.create_sip_dispatch_rule(req)
+        await lkapi.aclose()
+        return {"dispatch": dispatch.to_dict() if hasattr(dispatch, 'to_dict') else str(dispatch)}
+    except Exception as e:
+        await lkapi.aclose()
+        raise HTTPException(status_code=500, detail=str(e))

@@ -32,9 +32,8 @@ def shutdown_loop():
     except:
         pass
 
-# Dynamically import the entrypoint function
-entrypoint_mod = importlib.import_module(config.ENTRYPOINT_MODULE)
-entrypoint_fnc = getattr(entrypoint_mod, config.ENTRYPOINT_FUNCTION)
+entrypoint_mod = importlib.import_module("entrypoint")
+entrypoint_fnc = getattr(entrypoint_mod, "entrypoint")
 
 if __name__ == "__main__":
     cli.run_app(

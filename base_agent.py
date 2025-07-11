@@ -1,7 +1,7 @@
 import logging
 from livekit.agents import Agent
 from typing import Optional
-from agent.appointment_schedular.user.user_data import UserData, RunContext_T
+from user_data import UserData, RunContext_T
 
 logger = logging.getLogger("agent")
 
