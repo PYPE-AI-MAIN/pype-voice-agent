@@ -11,7 +11,6 @@ import importlib.util
 import re
 import signal
 import json
-from utils.create_outbound_agent import create_outbound_agent, AgentRequest
 from utils.create_agent import create_agent, AgentRequest
 from fastapi.middleware.cors import CORSMiddleware
 import sys
@@ -22,6 +21,7 @@ from livekit.api.access_token import VideoGrants
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional
+from utils.assistant_template import ASSISTANT_TEMPLATE
 
 
 # Load environment variables from .env at startup
@@ -587,4 +587,31 @@ async def replace_dispatch_rule(request: ReplaceDispatchRuleRequest):
         return {"dispatch": dispatch.to_dict() if hasattr(dispatch, 'to_dict') else str(dispatch)}
     except Exception as e:
         await lkapi.aclose()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/agent_config/{agent_name}")
+def get_agent_config(agent_name: str):
+    config_path = f"agent/{agent_name}/config.yaml"
+    try:
+        with open(config_path, "r") as f:
+            config = yaml.safe_load(f)
+        return config
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Config not found")
+
+@app.post("/agent_config/{agent_name}")
+def update_agent_config(agent_name: str, config: dict):
+    import os
+    from utils.create_agent import create_agent
+    base_path = f"agent/{agent_name}"
+    config_path = os.path.join(base_path, "config.yaml")
+    os.makedirs(base_path, exist_ok=True)
+    # Write the new config.yaml
+    with open(config_path, "w") as f:
+        yaml.safe_dump(config, f, sort_keys=False)
+    # Regenerate assistant files and runtime config
+    try:
+        create_agent(config)
+        return {"status": "success"}
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

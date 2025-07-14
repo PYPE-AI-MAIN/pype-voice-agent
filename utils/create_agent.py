@@ -3,12 +3,13 @@ import shutil
 import logging
 from pydantic import BaseModel
 from typing import List, Dict, Any
+import yaml
 
 # Initialize logger
 logger = logging.getLogger("create-agent")
 logging.basicConfig(level=logging.INFO)
 
-ASSISTANT_TEMPLATE = '''from livekit.plugins import elevenlabs, openai, sarvam, silero
+ASSISTANT_TEMPLATE = '''from livekit.plugins import {backend_imports}
 from base_agent import BaseAgent
 from user_data import RunContext_T
 
@@ -16,15 +17,15 @@ class {assistant_class}(BaseAgent):
     def __init__(self):
         super().__init__(
             instructions={instructions!r},
-            stt=sarvam.STT(language={stt_language!r}, model={stt_model!r}),
-            llm=openai.LLM(model={llm_model!r}, temperature={llm_temperature}),
-            tts=elevenlabs.TTS(
+            stt={stt_backend}.STT(language={stt_language!r}, model={stt_model!r}),
+            llm={llm_backend}.LLM(model={llm_model!r}, temperature={llm_temperature}),
+            tts={tts_backend}.TTS(
                 voice_id={tts_voice_id!r},
                 model={tts_model!r},
                 language={tts_language!r},
-                voice_settings=elevenlabs.VoiceSettings(**{tts_voice_settings})
+                voice_settings={tts_backend}.VoiceSettings(**{tts_voice_settings})
             ),
-            vad=silero.VAD.load(min_silence_duration={vad_min_silence_duration})
+            vad={vad_backend}.VAD.load(min_silence_duration={vad_min_silence_duration})
         )
 '''
 
@@ -89,6 +90,15 @@ def create_agent(agent_config: dict):
     logger.info(f"Creating inbound agent directory structure for '{agent_name}' at '{base_path}'")
     os.makedirs(assistants_path, exist_ok=True)
 
+    # Collect all unique backends for import
+    backend_set = set()
+    for assistant in assistants:
+        backend_set.add(assistant["stt"]["name"])
+        backend_set.add(assistant["llm"]["name"])
+        backend_set.add(assistant["tts"]["name"])
+        backend_set.add(assistant["vad"]["name"])
+    backend_imports = ", ".join(sorted(backend_set))
+
     # Write each assistant
     assistant_imports = []
     assistant_classes = []
@@ -100,21 +110,31 @@ def create_agent(agent_config: dict):
         logger.info(f"Writing assistant class '{class_name}' to {assistant_path}")
         assistant_imports.append(f"from agent.{agent_name}.assistants.{class_name} import {class_name}")
         assistant_classes.append(class_name)
-        assistant_names.append(f'\"{class_name}\"')
+        assistant_names.append(f'"{class_name}"')
         with open(assistant_path, "w") as f:
             f.write(ASSISTANT_TEMPLATE.format(
+                backend_imports=backend_imports,
                 assistant_class=class_name,
                 instructions=assistant["prompt"],
+                stt_backend=assistant["stt"]["name"],
                 stt_language=assistant["stt"]["language"],
                 stt_model=assistant["stt"]["model"],
+                llm_backend=assistant["llm"]["name"],
                 llm_model=assistant["llm"]["model"],
                 llm_temperature=assistant["llm"].get("temperature", 0.3),
+                tts_backend=assistant["tts"]["name"],
                 tts_voice_id=assistant["tts"]["voice_id"],
                 tts_model=assistant["tts"]["model"],
                 tts_language=assistant["tts"]["language"],
                 tts_voice_settings=assistant["tts"]["voice_settings"],
+                vad_backend=assistant["vad"]["name"],
                 vad_min_silence_duration=assistant["vad"].get("min_silence_duration", 0.2)
             ))
+
+    # Write agent-level config.yaml
+    config_yaml_path = os.path.join(base_path, "config.yaml")
+    with open(config_yaml_path, "w") as f:
+        yaml.safe_dump({"agent": agent}, f, sort_keys=False)
 
     # Write agent_runtime_config.py
     agent_runtime_config_path = os.path.join(base_path, "agent_runtime_config.py")

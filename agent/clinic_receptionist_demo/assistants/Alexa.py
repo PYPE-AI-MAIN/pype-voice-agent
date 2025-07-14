@@ -1,6 +1,6 @@
 from livekit.plugins import elevenlabs, openai, sarvam, silero, deepgram, cartesia
-from agent.customer_support_specialist_v3.assistants.base_agent import BaseAgent
-from agent.customer_support_specialist_v3.user.user_data import RunContext_T
+from base_agent import BaseAgent
+from user_data import RunContext_T
 from livekit.agents import (function_tool)
 from livekit import api
 from livekit.agents.job import get_job_context
@@ -246,14 +246,15 @@ Before ending the call, Alexa should always wrap up in a polite, friendly way. H
                 interim_results=True
             ),
             llm=openai.LLM(model="gpt-4o-mini", temperature=0.3, max_completion_tokens=200),
-            tts=cartesia.TTS(),
+            tts=elevenlabs.TTS(
+                voice_id='kdmDKE6EkgrWrrykO9Qt',
+                model='eleven_flash_v2_5',
+                language='hi',
+                voice_settings=elevenlabs.VoiceSettings(**{'similarity_boost': 1.0, 'stability': 0.7, 'style': 0.7, 'use_speaker_boost': False, 'speed': 1.1})
+            ),
             vad=silero.VAD.load(min_silence_duration=0.2)
         )
 
-    async def on_enter(self) -> None:
-        from utils.transcript_manager import TranscriptManager
-        self.transcript_mgr = TranscriptManager(self.vad, self._early_llm_start)
-        await super().on_enter()
 
     @function_tool()
     async def end_call(self, ctx: RunContext_T):
