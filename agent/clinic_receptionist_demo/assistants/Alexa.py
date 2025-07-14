@@ -247,7 +247,7 @@ Before ending the call, Alexa should always wrap up in a polite, friendly way. H
             ),
             llm=openai.LLM(model="gpt-4o-mini", temperature=0.3, max_completion_tokens=200),
             tts=elevenlabs.TTS(
-                voice_id='H8bdWZHK2OgZwTN7ponr',
+                voice_id='56AoDkrOh6qfVPDXZ7Pt',
                 model='eleven_flash_v2_5',
                 language='hi',
                 voice_settings=elevenlabs.VoiceSettings(**{'similarity_boost': 1.0, 'stability': 0.7, 'style': 0.7, 'use_speaker_boost': False, 'speed': 1.1})

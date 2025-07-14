@@ -194,7 +194,7 @@ agent:
         temperature: 0.3
       tts:
         name: elevenlabs
-        voice_id: cNYrMw9glwJZXR8RwbuR
+        voice_id: Nhs7eitvQWFTQBsf0yiT
         model: eleven_flash_v2_5
         language: hi
         voice_settings:

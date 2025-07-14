@@ -17,3 +17,4 @@ pyyaml
 fastapi
 pydantic
 uvicorn
+ngrok

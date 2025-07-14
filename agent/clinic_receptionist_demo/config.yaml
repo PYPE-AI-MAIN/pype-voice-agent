@@ -192,7 +192,16 @@ agent:
         temperature: 0.3
         max_completion_tokens: 200
       tts:
-        name: cartesia
+        name: elevenlabs
+        voice_id: 56AoDkrOh6qfVPDXZ7Pt
+        model: eleven_flash_v2_5
+        language: hi
+        voice_settings:
+          similarity_boost: 1.0
+          stability: 0.7
+          style: 0.7
+          use_speaker_boost: false
+          speed: 1.1
       vad:
         name: silero
         min_silence_duration: 0.2

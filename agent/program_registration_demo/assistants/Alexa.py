@@ -196,7 +196,7 @@ Use `end_call` to ensure the conversation ends gracefully and cleanly for the us
             stt=deepgram.STT(),
             llm=openai.LLM(model='gpt-4.1-mini', temperature=0.3),
             tts=elevenlabs.TTS(
-                voice_id='H8bdWZHK2OgZwTN7ponr',
+                voice_id='Nhs7eitvQWFTQBsf0yiT',
                 model='eleven_flash_v2_5',
                 language='hi',
                 voice_settings=elevenlabs.VoiceSettings(**{'similarity_boost': 1.0, 'stability': 0.7, 'style': 0.7, 'use_speaker_boost': False, 'speed': 1.1})
