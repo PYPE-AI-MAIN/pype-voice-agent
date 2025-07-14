@@ -12,6 +12,9 @@ logging.basicConfig(level=logging.INFO)
 ASSISTANT_TEMPLATE = '''from livekit.plugins import {backend_imports}
 from base_agent import BaseAgent
 from user_data import RunContext_T
+from livekit.agents import (function_tool)
+from livekit import api
+from livekit.agents.job import get_job_context
 
 class {assistant_class}(BaseAgent):
     def __init__(self):
@@ -26,6 +29,20 @@ class {assistant_class}(BaseAgent):
                 voice_settings={tts_backend}.VoiceSettings(**{tts_voice_settings})
             ),
             vad={vad_backend}.VAD.load(min_silence_duration={vad_min_silence_duration})
+        )
+
+    @function_tool()
+    async def end_call(self, ctx: RunContext_T):
+        """Use this tool to end the call immediately."""
+        # Wait for current speech to finish
+        current_speech = ctx.session.current_speech
+        if current_speech:
+            await current_speech.wait_for_playout()
+
+        # Now hang up using the server API
+        job_ctx = get_job_context()
+        await job_ctx.api.room.delete_room(
+            api.DeleteRoomRequest(room=job_ctx.room.name)
         )
 '''
 

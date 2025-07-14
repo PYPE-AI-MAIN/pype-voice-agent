@@ -7,6 +7,8 @@ from livekit import api
 import os
 import importlib
 from user_data import UserData
+import logging
+from collections import defaultdict
 
 load_dotenv()
 
@@ -38,12 +40,49 @@ async def entrypoint(ctx):
     agent_name = meta.get("agent_name", "customer_support_specialist")
     ASSISTANT_CLASSES = get_assistant_classes(agent_name)
 
+    # Set up logging and metrics
+    logger = logging.getLogger("agent-entrypoint")
+    logger.setLevel(logging.INFO)
+    try:
+        from livekit.agents import metrics, MetricsCollectedEvent
+    except ImportError:
+        metrics = None
+        MetricsCollectedEvent = None
+    usage_collector = metrics.UsageCollector() if metrics else None
+    latency_metrics = defaultdict(dict)
+
+    def setup_metrics(session):
+        if not metrics:
+            return
+        @session.on("metrics_collected")
+        def _on_metrics_collected(ev: MetricsCollectedEvent):
+            metrics.log_metrics(ev.metrics)
+            usage_collector.collect(ev.metrics)
+            m = ev.metrics
+            metric_type = type(m).__name__
+            speech_id = getattr(m, "speech_id", None)
+            if speech_id:
+                latency_metrics[speech_id][metric_type] = m
+                if all(k in latency_metrics[speech_id] for k in ("EOUMetrics", "LLMMetrics", "TTSMetrics")):
+                    eou = latency_metrics[speech_id]["EOUMetrics"]
+                    llm = latency_metrics[speech_id]["LLMMetrics"]
+                    tts = latency_metrics[speech_id]["TTSMetrics"]
+                    total_latency = eou.end_of_utterance_delay + llm.ttft + tts.ttfb
+                    logger.info(
+                        f"Turn {speech_id} Latency: EOU={eou.end_of_utterance_delay:.3f}s, "
+                        f"LLM TTFT={llm.ttft:.3f}s, TTS TTFB={tts.ttfb:.3f}s, "
+                        f"Total={total_latency:.3f}s"
+                    )
+        async def log_usage():
+            summary = usage_collector.get_summary()
+            logger.info(f"Usage: {summary}")
+        ctx.add_shutdown_callback(log_usage)
+
     # 3. Decide flow based on metadata
     if meta.get("source") == "web":
         print("[Agent Entrypoint] Handling web session")
         await ctx.connect()
         room = ctx.room
-        # Prepare agent session
         userdata = UserData(ctx=ctx)
         agent_instances = []
         for cls in ASSISTANT_CLASSES:
@@ -54,6 +93,7 @@ async def entrypoint(ctx):
         print(f"[Agent Entrypoint] Created {len(agent_instances)} agent instances (web)")
         agent_instance = agent_instances[0]
         session = AgentSession[UserData](userdata=userdata, turn_detection=EnglishModel())
+        setup_metrics(session)
         print("[Agent Entrypoint] Starting agent session in web flow")
         await session.start(
             agent=agent_instance,
@@ -102,6 +142,7 @@ async def entrypoint(ctx):
             print(f"[Agent Entrypoint] Created {len(agent_instances)} agent instances (outbound)")
             agent_instance = agent_instances[0]
             session = AgentSession[UserData](userdata=userdata, turn_detection=EnglishModel())
+            setup_metrics(session)
             print("[Agent Entrypoint] Starting agent session in outbound SIP flow")
             await session.start(
                 agent=agent_instance,
@@ -149,6 +190,7 @@ async def entrypoint(ctx):
         agent_instances.append(instance)
     agent_instance = agent_instances[0]
     session = AgentSession[UserData](userdata=userdata, turn_detection=EnglishModel())
+    setup_metrics(session)
     await session.start(
         agent=agent_instance,
         room=ctx.room,
