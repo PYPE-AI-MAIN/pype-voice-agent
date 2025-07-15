@@ -106,9 +106,10 @@ def get_agent_type(config_path):
 
 @app.get("/agents")
 def list_agents():
+    agent_configs = glob.glob("agent/*/agent_runtime_config.py")
     return [
         {"name": get_agent_name(cfg), "config_path": cfg, "type": get_agent_type(cfg)}
-        for cfg in AGENT_CONFIGS
+        for cfg in agent_configs
     ]
 
 @app.get("/running_agents")
@@ -131,7 +132,7 @@ def running_agents():
 def run_agent(req: RunAgentRequest):
     # Find config path by agent_name
     config_path = None
-    for cfg in AGENT_CONFIGS:
+    for cfg in glob.glob("agent/*/agent_runtime_config.py"):
         if get_agent_name(cfg) == req.agent_name:
             config_path = cfg
             break
